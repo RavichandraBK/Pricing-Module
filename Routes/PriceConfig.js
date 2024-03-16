@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const _ = require('lodash');
 const Price = require('../Models/PriceConfig')
 router.get('/get-price-config', async (req, res) => {
     try {
@@ -26,33 +27,39 @@ function arraysEqual(arr1, arr2) {
     return true;
 }
 
-router.post('/add-price-config',async(req,res)=>{
+router.post('/add-price-config/:userId',async(req,res)=>{
     try {
-        const {userId, configs:newConfig} = req.body;
+        const {configs:newConfig} = req.body;
+        const {userId} = req.params;
         console.log(req.body)
         const existingUsr = await Price.findOne({userId});
         console.log(existingUsr)
         if(!existingUsr){
-            const addConfig = await Price.create({userId,configs:[{distanceBasePrice:newConfig.dbp, distanceAdditionalPrice:newConfig.dap,timeMultiplierFactor:newConfig.tmf,waitingCharges:newConfig.wc,daysOfWeek:newConfig.weekdays}]});
-            res.json({message:'Successfully created the configuaration',configId:addConfig.configs});
+            // const addConfig = await Price.create({userId,configs:[{distanceBasePrice:newConfig.dbp, distanceAdditionalPrice:newConfig.dap,timeMultiplierFactor:newConfig.tmf,waitingCharges:newConfig.wc,daysOfWeek:newConfig.weekdays}]});
+            const addConfig = await Price.create({userId,configs:[newConfig]});
+            res.json({message:'Successfully created the configuaration',configId:addConfig.configs[0]?._id});
             return
         }
         
 
-            const existingConfig = existingUsr.configs.find(config => (
-                config.distanceBasePrice === newConfig.dbp &&
-                config.distanceAdditionalPrice === newConfig.dap &&
-                config.timeMultiplierFactor === newConfig.tmf &&
-                config.waitingCharges === newConfig.wc &&
-                arraysEqual(config.daysOfWeek, newConfig.weekdays) 
-            ));
-            console.log(existingConfig)
+            const existingConfig = existingUsr.configs.some(obj =>{ 
+               return Object.values(obj).every((value, index) => {
+                    const otherValue = Object.values(newConfig)[index];
+                    if (Array.isArray(value) && Array.isArray(otherValue)) {
+                        return value.length!==otherValue.length?false:value.every((value, index) => value === otherValue[index]);;
+                    }
+                    return value === otherValue;
+                });
+     
+});
+            console.log("existingConfig",existingConfig)
         if(existingConfig){
             res.json({message:'Configurartion already existing , please use it or create different one'});
         }
         else{
-            const updatedConfig = await Price.findOneAndUpdate({userId},{$push:{configs:[{distanceBasePrice:newConfig.dbp, distanceAdditionalPrice:newConfig.dap,timeMultiplierFactor:newConfig.tmf,waitingCharges:newConfig.wc,daysOfWeek:newConfig.weekdays}]}},{new:true})
-            const configId = updatedConfig.configs[updatedConfig.configs.length-1]._id;
+            // const updatedConfig = await Price.findOneAndUpdate({userId},{$push:{configs:[{distanceBasePrice:newConfig.dbp, distanceAdditionalPrice:newConfig.dap,timeMultiplierFactor:newConfig.tmf,waitingCharges:newConfig.wc,daysOfWeek:newConfig.weekdays}]}},{new:true})
+            const updatedConfig = await Price.findOneAndUpdate({userId},{$push:{configs:[newConfig]}},{new:true})
+            const configId = updatedConfig.configs[updatedConfig.configs.length-1]?._id;
             res.json({message:'Price configuration added successfully',configId});
         }
     } catch (err) {
@@ -61,10 +68,10 @@ router.post('/add-price-config',async(req,res)=>{
     }
 })
 
-router.put('/edit-config', async (req, res) => {
+router.put('/edit-config/:userId/:configId', async (req, res) => {
     try {
-        const { userId, configId, updatedConfig } = req.body;
-
+        const {  updatedConfig } = req.body;
+        const {userId, configId} = req.params;
         const updatedUser = await Price.findOneAndUpdate(
             { userId, 'configs._id': configId }, 
             { $set: { 'configs.$': updatedConfig } }, 
@@ -82,11 +89,11 @@ router.put('/edit-config', async (req, res) => {
     }
 });
 
-router.delete('/remove-config', async (req, res) => {
+router.delete('/remove-config/:userId/:configId', async (req, res) => {
     try {
-        const { userId, configId } = req.body;
+        const {userId, configId} = req.params;
 
-        const updatedUser = await User.findOneAndUpdate(
+        const updatedUser = await Price.findOneAndUpdate(
             { userId },
             { $pull: { configs: { _id: configId } } }, 
             { new: true } 
